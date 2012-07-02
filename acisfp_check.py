@@ -6,7 +6,7 @@ dpa_check
 ========================
 
 This code generates backstop load review outputs for checking the ACIS
-DPA temperature 1DPAMZT.  It also generates DPA model validation
+FP temperature FPTEMP_11.  It also generates ACIS FP model validation
 plots comparing predicted values to telemetry for the previous three weeks.
 """
 
@@ -38,22 +38,16 @@ import Ska.Matplotlib
 
 import xija
 
-MSID = dict(dpa='1DPAMZT')
-YELLOW = dict(dpa=35.0)
-MARGIN = dict(dpa=2.5)
-VALIDATION_LIMITS = {'1DPAMZT': [(1, 2.5),
-                                 (50, 1.0),
-                                 (99, 2.5)],
-                     'PITCH': [(1, 3.0),
+MSID = dict(fptemp='FPTEMP')
+VALIDATION_LIMITS = {'PITCH': [(1, 3.0),
                                   (99, 3.0)],
                      'TSCPOS': [(1, 2.5),
                                 (99, 2.5)]
                      }
 
 TASK_DATA = os.path.dirname(__file__)
-URL = "http://cxc.harvard.edu/mta/ASPECT/dpa_daily_check"
 
-logger = logging.getLogger('dpa_check')
+logger = logging.getLogger('acisfp_check')
 
 _versionfile = os.path.join(os.path.dirname(__file__), 'VERSION')
 VERSION = open(_versionfile).read().strip()
@@ -68,8 +62,8 @@ def get_options():
     parser.add_option("--oflsdir",
                        help="Load products OFLS directory")
     parser.add_option("--model-spec",
-                      default=os.path.join(TASK_DATA, 'dpa_model_spec.json'),
-                       help="DPA model specification file")
+                      default=os.path.join(TASK_DATA, 'acisfp_spec.json'),
+                       help="ACIS FP model specification file")
     parser.add_option("--days",
                       type='float',
                       default=21.0,
@@ -110,7 +104,7 @@ def get_options():
                       help="Starting pitch (deg)")
     parser.add_option("--T-dpa",
                       type='float',
-                      help="Starting 1DPAMZT temperature (degC)")
+                      help="Starting FPTEMP temperature (degC)")
     parser.add_option("--version",
                       action='store_true',
                       help="Print version")
@@ -129,11 +123,10 @@ def main(opt):
     proc = dict(run_user=os.environ['USER'],
                 run_time=time.ctime(),
                 errors=[],
-                dpa_limit=YELLOW['dpa'] - MARGIN['dpa'],
                 )
     logger.info('##############################'
                 '#######################################')
-    logger.info('# dpa_check.py run at %s by %s'
+    logger.info('# fptemp_check.py run at %s by %s'
                 % (proc['run_time'], proc['run_user']))
     logger.info('# dpa_check version = {}'.format(VERSION))
     logger.info('# model_spec file = %s' % os.path.abspath(opt.model_spec))
@@ -161,12 +154,13 @@ def main(opt):
 
     # Get temperature telemetry for 3 weeks prior to min(tstart, NOW)
     tlm = get_telem_values(min(tstart, tnow),
-                           ['1dpamzt',
-                            'sim_z', 'aosares1',
-                            'dp_dpa_power'],
+                           ['fptemp_11',
+                            'sim_z',
+                            'aosares1'],
                            days=opt.days,
                            name_map={'sim_z': 'tscpos',
-                                     'aosares1': 'pitch'})
+                                     'aosares1': 'pitch',
+                                     'fptemp_11': 'fptemp'})
     tlm['tscpos'] = tlm['tscpos'] * -397.7225924607
 
     # make predictions on oflsdir if defined
@@ -180,13 +174,7 @@ def main(opt):
     plots_validation = make_validation_plots(opt, tlm, db)
     valid_viols = make_validation_viols(plots_validation)
     if len(valid_viols) > 0:
-        # generate daily plot url if outdir in expected year/day format
-        daymatch = re.match('.*(\d{4})/(\d{3})', opt.outdir)
-        if opt.oflsdir is None and daymatch:
-            url = os.path.join(URL, daymatch.group(1), daymatch.group(2))
-            logger.info('validation warning(s) at %s' % url)
-        else:
-            logger.info('validation warning(s) in output at %s' % opt.outdir)
+        logger.info('validation warning(s) in output at %s' % opt.outdir)
 
     write_index_rst(opt, proc, plots_validation, valid_viols=valid_viols,
                     plots=pred['plots'], viols=pred['viols'])
@@ -199,16 +187,32 @@ def main(opt):
 
 
 def calc_model(model_spec, states, start, stop, T_dpa=None, T_dpa_times=None):
-    model = xija.ThermalModel('dpa', start=start, stop=stop,
+    model = xija.ThermalModel('acisfp', start=start, stop=stop,
                               model_spec=model_spec)
 
     times = np.array([states['tstart'], states['tstop']])
     model.comp['sim_z'].set_data(states['simpos'], times)
     model.comp['eclipse'].set_data(False)
-    model.comp['1dpamzt'].set_data(T_dpa, T_dpa_times)
+    model.comp['fptemp'].set_data(T_dpa, T_dpa_times)
 
     for name in ('ccd_count', 'fep_count', 'vid_board', 'clocking', 'pitch'):
         model.comp[name].set_data(states[name], times)
+
+    for i in range(1, 5):
+        name = 'aoattqt{}'.format(i)
+        state_name = 'q{}'.format(i)
+        model.comp[name].set_data(states[state_name], times)
+
+    # Get ephemeris from eng archive
+    for axis in ('x', 'y', 'z'):
+        name = 'orbitephem0_{}'.format(axis)
+        msid = fetch.Msid(name, model.tstart - 2000, model.tstop + 2000)
+        model.comp[name].set_data(msid.vals, msid.times)
+
+    model.comp['dpa_power'].set_data(0.0)
+    model.comp['1cbat'].set_data(-53.0)
+    model.comp['sim_px'].set_data(-120.0)
+    model.comp['fptemp'].set_data(-120.0)
 
     model.make()
     model.calc()
@@ -237,7 +241,7 @@ def make_week_predict(opt, tstart, tstop, bs_cmds, tlm, db):
                                        datepar='datestart')
         ok = ((tlm['date'] >= state0['tstart'] - 700) &
               (tlm['date'] <= state0['tstart'] + 700))
-        state0.update({'T_dpa': np.mean(tlm['1dpamzt'][ok])})
+        state0.update({'T_dpa': np.mean(tlm['fptemp'][ok])})
 
     # TEMPORARY HACK: core model doesn't actually support predictive
     # active heater yet.  Initial temperature determines active heater
@@ -280,7 +284,7 @@ def make_week_predict(opt, tstart, tstop, bs_cmds, tlm, db):
                  (len(states), states[0]['datestart'], states[-1]['datestop']))
 
     # Create array of times at which to calculate DPA temps, then do it.
-    logger.info('Calculating DPA thermal model')
+    logger.info('Calculating ACIS FP thermal model')
 
     model = calc_model(opt.model_spec, states, state0['tstart'], tstop,
                        state0['T_dpa'])
@@ -289,7 +293,7 @@ def make_week_predict(opt, tstart, tstop, bs_cmds, tlm, db):
     plt.rc("axes", labelsize=10, titlesize=12)
     plt.rc("xtick", labelsize=10)
     plt.rc("ytick", labelsize=10)
-    temps = {'dpa': model.comp['1dpamzt'].mvals}
+    temps = {'fptemp': model.comp['fptemp'].mvals}
     plots = make_check_plots(opt, states, model.times, temps, tstart)
     viols = make_viols(opt, states, model.times, temps)
     write_states(opt, states)
@@ -312,7 +316,7 @@ def make_validation_viols(plots_validation):
     for plot in plots_validation:
         # 'plot' is actually a structure with plot info and stats about the
         #  plotted data for a particular MSID.  'msid' can be a real MSID
-        #  (1DPAMZT) or pseudo like 'POWER'
+        #  (FPTEMP) or pseudo like 'POWER'
         msid = plot['msid']
 
         # Make sure validation limits exist for this MSID
@@ -472,13 +476,13 @@ def write_temps(opt, times, temps):
     """Write temperature predictions to file temperatures.dat"""
     outfile = os.path.join(opt.outdir, 'temperatures.dat')
     logger.info('Writing temperatures to %s' % outfile)
-    T_dpa = temps['dpa']
+    T_dpa = temps['fptemp']
     temp_recs = [(times[i], DateTime(times[i]).date, T_dpa[i])
                  for i in xrange(len(times))]
     temp_array = np.rec.fromrecords(
-        temp_recs, names=('time', 'date', '1dpamzt'))
+        temp_recs, names=('time', 'date', 'fptemp'))
 
-    fmt = {'1dpamzt': '%.2f',
+    fmt = {'fptemp': '%.2f',
            'time': '%.2f'}
     out = open(outfile, 'w')
     Ska.Numpy.pprint(temp_array, fmt, out)
@@ -524,26 +528,32 @@ def make_viols(opt, states, times, temps):
     """
     logger.info('Checking for limit violations')
 
-    viols = dict((x, []) for x in MSID)
-    for msid in MSID:
-        temp = temps[msid]
-        plan_limit = YELLOW[msid] - MARGIN[msid]
-        bad = np.concatenate(([False],
-                             temp >= plan_limit,
-                             [False]))
-        changes = np.flatnonzero(bad[1:] != bad[:-1]).reshape(-1, 2)
+    # THIS ROUTINE DOESN'T APPLY TO FP_TEMP.  Needs serious rewrite to
+    # account for context-dependent limits.  For now just return no
+    # violations.
 
-        for change in changes:
-            viol = {'datestart': DateTime(times[change[0]]).date,
-                    'datestop': DateTime(times[change[1] - 1]).date,
-                    'maxtemp': temp[change[0]:change[1]].max()
-                    }
-            logger.info('WARNING: %s exceeds planning limit of %.2f '
-                        'degC from %s to %s'
-                        % (MSID[msid], plan_limit, viol['datestart'],
-                           viol['datestop']))
-            viols[msid].append(viol)
+    viols = dict((x, []) for x in MSID)
     return viols
+
+    # for msid in MSID:
+    #     temp = temps[msid]
+    #     plan_limit = YELLOW[msid] - MARGIN[msid]
+    #     bad = np.concatenate(([False],
+    #                          temp >= plan_limit,
+    #                          [False]))
+    #     changes = np.flatnonzero(bad[1:] != bad[:-1]).reshape(-1, 2)
+
+    #     for change in changes:
+    #         viol = {'datestart': DateTime(times[change[0]]).date,
+    #                 'datestop': DateTime(times[change[1] - 1]).date,
+    #                 'maxtemp': temp[change[0]:change[1]].max()
+    #                 }
+    #         logger.info('WARNING: %s exceeds planning limit of %.2f '
+    #                     'degC from %s to %s'
+    #                     % (MSID[msid], plan_limit, viol['datestart'],
+    #                        viol['datestop']))
+    #         viols[msid].append(viol)
+    # return viols
 
 
 def plot_two(fig_id, x, y, x2, y2,
@@ -603,7 +613,7 @@ def make_check_plots(opt, states, times, temps, tstart):
     load_start = Ska.Matplotlib.cxctime2plotdate([tstart])[0]
 
     logger.info('Making temperature check plots')
-    for fig_id, msid in enumerate(('dpa',)):
+    for fig_id, msid in enumerate(('fptemp',)):
         plots[msid] = plot_two(fig_id=fig_id + 1,
                                x=times,
                                y=temps[msid],
@@ -615,10 +625,6 @@ def make_check_plots(opt, states, times, temps, tstart):
                                ylabel2='Pitch (deg)',
                                ylim2=(40, 180),
                                )
-        plots[msid]['ax'].axhline(YELLOW[msid], linestyle='-', color='y',
-                                  linewidth=2.0)
-        plots[msid]['ax'].axhline(YELLOW[msid] - MARGIN[msid], linestyle='--',
-                                  color='y', linewidth=2.0)
         plots[msid]['ax'].axvline(load_start, linestyle=':', color='g',
                                   linewidth=1.0)
         filename = MSID[msid].lower() + '.png'
@@ -710,7 +716,7 @@ def make_validation_plots(opt, tlm, db):
 
     # Interpolate states onto the tlm.date grid
     # state_vals = cmd_states.interpolate_states(states, model.times)
-    pred = {'1dpamzt': model.comp['1dpamzt'].mvals,
+    pred = {'fptemp': model.comp['fptemp'].mvals,
             'pitch': model.comp['pitch'].mvals,
             'tscpos': model.comp['sim_z'].mvals
             }
@@ -719,14 +725,14 @@ def make_validation_plots(opt, tlm, db):
                                  method='nearest')
     tlm = tlm[idxs]
 
-    labels = {'1dpamzt': 'Degrees (C)',
+    labels = {'fptemp': 'Degrees (C)',
               'pitch': 'Pitch (degrees)',
               'tscpos': 'SIM-Z (steps/1000)',
               }
 
     scales = {'tscpos': 1000.}
 
-    fmts = {'1dpamzt': '%.2f',
+    fmts = {'fptemp': '%.2f',
             'pitch': '%.3f',
             'tscpos': '%d'}
 
@@ -756,8 +762,8 @@ def make_validation_plots(opt, tlm, db):
         plot['lines'] = filename
 
         # Make quantiles
-        if msid == '1dpamzt':
-            ok = tlm[msid] > 20.0
+        if msid == 'fptemp':
+            ok = (tlm[msid] > -119.7) & (tlm[msid] < -117)
         else:
             ok = np.ones(len(tlm[msid]), dtype=bool)
         diff = np.sort(tlm[msid][ok] - pred[msid][ok])
@@ -826,33 +832,6 @@ def plot_cxctime(times, y, fig=None, **kwargs):
     fig.autofmt_xdate()
 
     return ticklocs, fig, ax
-
-
-def get_power(states):
-    """
-    Determine the power value in each state by finding the entry in calibration
-    power table with the same ``fep_count``, ``vid_board``, and ``clocking``
-    values.
-
-    :param states: input states
-    :rtype: numpy array of power corresponding to states
-    """
-
-    # Make a tuple of values that define a unique power state
-    powstate = lambda x: tuple(x[col] for col in ('fep_count', 'vid_board',
-                                                  'clocking'))
-
-    # dpa_power charactestic is a list of 4-tuples (fep_count vid_board
-    # clocking power_avg).  Build a dict to allow access to power_avg for
-    # available (fep_count vid_board clocking) combos.
-    power_states = dict((row[0:3], row[3])
-                        for row in characteristics.dpa_power)
-    try:
-        powers = [power_states[powstate(x)] for x in states]
-    except KeyError:
-        raise ValueError('Unknown power state: %s' % str(powstate(x)))
-
-    return powers
 
 
 def pointpair(x, y=None):

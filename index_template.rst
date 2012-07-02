@@ -40,7 +40,7 @@ Date start             Date stop              Max temperature
 No 1DPAMZT Violations
 {% endif %}
 
-.. image:: {{plots.dpa.filename}}
+.. image:: {{plots.fptemp.filename}}
 .. image:: {{plots.pow_sim.filename}}
 
 =======================
