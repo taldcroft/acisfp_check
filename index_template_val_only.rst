@@ -1,6 +1,6 @@
-=======================
-DPA temperatures check
-=======================
+==========================
+ACISFP temperatures check
+==========================
 .. role:: red
 
 {% if proc.errors %}
@@ -22,13 +22,13 @@ Run log               `<run.dat>`_
 ====================  =============================================
 
 =======================
-DPA Model Validation
+ACISFP Model Validation
 =======================
 
 MSID quantiles
 ---------------
 
-Note: DPA quantiles are calculated using only points where 1DPAMZT > 20 degC.
+Note: ACISFP quantiles are calculated using only points where -119.7 < ACISFP_11 < 117.0.
 
 .. csv-table:: 
    :header: "MSID", "1%", "5%", "16%", "50%", "84%", "95%", "99%"
@@ -62,7 +62,7 @@ No Validation Violations
 {{ plot.msid }}
 -----------------------
 
-Note: DPA residual histograms include only points where 1DPAMZT > 20 degC.
+Note: ACISFP residual histograms include only points where -119.7 < ACISFP_11 < 117.0.
 
 Red = telemetry, blue = model
 

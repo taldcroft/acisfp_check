@@ -2,7 +2,7 @@
 
 """
 ========================
-dpa_check
+acisfp_check
 ========================
 
 This code generates backstop load review outputs for checking the ACIS
@@ -51,6 +51,7 @@ logger = logging.getLogger('acisfp_check')
 
 _versionfile = os.path.join(os.path.dirname(__file__), 'VERSION')
 VERSION = open(_versionfile).read().strip()
+
 
 def get_options():
     from optparse import OptionParser
@@ -102,7 +103,7 @@ def get_options():
                       default=150.0,
                       type='float',
                       help="Starting pitch (deg)")
-    parser.add_option("--T-dpa",
+    parser.add_option("--T-acisfp",
                       type='float',
                       help="Starting FPTEMP temperature (degC)")
     parser.add_option("--version",
@@ -126,9 +127,9 @@ def main(opt):
                 )
     logger.info('##############################'
                 '#######################################')
-    logger.info('# fptemp_check.py run at %s by %s'
+    logger.info('# acisfp_check.py run at %s by %s'
                 % (proc['run_time'], proc['run_user']))
-    logger.info('# dpa_check version = {}'.format(VERSION))
+    logger.info('# acisfp_check version = {}'.format(VERSION))
     logger.info('# model_spec file = %s' % os.path.abspath(opt.model_spec))
     logger.info('###############################'
                 '######################################\n')
@@ -186,14 +187,15 @@ def main(opt):
                 plots_validation=plots_validation)
 
 
-def calc_model(model_spec, states, start, stop, T_dpa=None, T_dpa_times=None):
+def calc_model(model_spec, states, start, stop, T_acisfp=None,
+               T_acisfp_times=None):
     model = xija.ThermalModel('acisfp', start=start, stop=stop,
                               model_spec=model_spec)
 
     times = np.array([states['tstart'], states['tstop']])
     model.comp['sim_z'].set_data(states['simpos'], times)
     model.comp['eclipse'].set_data(False)
-    model.comp['fptemp'].set_data(T_dpa, T_dpa_times)
+    model.comp['fptemp'].set_data(T_acisfp, T_acisfp_times)
 
     for name in ('ccd_count', 'fep_count', 'vid_board', 'clocking', 'pitch'):
         model.comp[name].set_data(states[name], times)
@@ -224,7 +226,7 @@ def make_week_predict(opt, tstart, tstop, bs_cmds, tlm, db):
     # Try to make initial state0 from cmd line options
     state0 = dict((x, getattr(opt, x))
                   for x in ('pitch', 'simpos', 'ccd_count', 'fep_count',
-                            'vid_board', 'clocking', 'T_dpa'))
+                            'vid_board', 'clocking', 'T_acisfp'))
     state0.update({'tstart': tstart - 30,
                    'tstop': tstart,
                    'datestart': DateTime(tstart - 30).date,
@@ -241,13 +243,13 @@ def make_week_predict(opt, tstart, tstop, bs_cmds, tlm, db):
                                        datepar='datestart')
         ok = ((tlm['date'] >= state0['tstart'] - 700) &
               (tlm['date'] <= state0['tstart'] + 700))
-        state0.update({'T_dpa': np.mean(tlm['fptemp'][ok])})
+        state0.update({'T_acisfp': np.mean(tlm['fptemp'][ok])})
 
     # TEMPORARY HACK: core model doesn't actually support predictive
     # active heater yet.  Initial temperature determines active heater
     # state for predictions now.
-    if state0['T_dpa'] < 15:
-        state0['T_dpa'] = 15.0
+    if state0['T_acisfp'] < 15:
+        state0['T_acisfp'] = 15.0
 
     logger.debug('state0 at %s is\n%s' % (DateTime(state0['tstart']).date,
                                            pformat(state0)))
@@ -283,13 +285,13 @@ def make_week_predict(opt, tstart, tstop, bs_cmds, tlm, db):
     logger.info('Found %d commanded states from %s to %s' %
                  (len(states), states[0]['datestart'], states[-1]['datestop']))
 
-    # Create array of times at which to calculate DPA temps, then do it.
+    # Create array of times at which to calculate ACISFP temps, then do it.
     logger.info('Calculating ACIS FP thermal model')
 
     model = calc_model(opt.model_spec, states, state0['tstart'], tstop,
-                       state0['T_dpa'])
+                       state0['T_acisfp'])
 
-    # Make the DPA limit check plots and data files
+    # Make the ACISFP limit check plots and data files
     plt.rc("axes", labelsize=10, titlesize=12)
     plt.rc("xtick", labelsize=10)
     plt.rc("ytick", labelsize=10)
@@ -400,14 +402,14 @@ def rst_to_html(opt, proc):
     dirname = os.path.dirname(docutils.writers.html4css1.__file__)
     shutil.copy2(os.path.join(dirname, 'html4css1.css'), opt.outdir)
 
-    shutil.copy2(os.path.join(TASK_DATA, 'dpa_check.css'), opt.outdir)
+    shutil.copy2(os.path.join(TASK_DATA, 'acisfp_check.css'), opt.outdir)
 
     spawn = Ska.Shell.Spawn(stdout=None)
     infile = os.path.join(opt.outdir, 'index.rst')
     outfile = os.path.join(opt.outdir, 'index.html')
     status = spawn.run(['rst2html.py',
                         '--stylesheet-path={}'
-                        .format(os.path.join(opt.outdir, 'dpa_check.css')),
+                        .format(os.path.join(opt.outdir, 'acisfp_check.css')),
                         infile, outfile])
     if status != 0:
         proc['errors'].append('rst2html.py failed with status {}: see run log'
@@ -440,7 +442,7 @@ def config_logging(outdir, verbose):
                 1: logging.INFO,
                 2: logging.DEBUG}.get(verbose, logging.INFO)
 
-    logger = logging.getLogger('dpa_check')
+    logger = logging.getLogger('acisfp_check')
     logger.setLevel(loglevel)
 
     formatter = logging.Formatter('%(message)s')
@@ -466,7 +468,7 @@ def write_states(opt, states):
            'tstop': '%.2f',
            }
     newcols = list(states.dtype.names)
-    newcols.remove('T_dpa')
+    newcols.remove('T_acisfp')
     newstates = np.rec.fromarrays([states[x] for x in newcols], names=newcols)
     Ska.Numpy.pprint(newstates, fmt, out)
     out.close()
@@ -476,8 +478,8 @@ def write_temps(opt, times, temps):
     """Write temperature predictions to file temperatures.dat"""
     outfile = os.path.join(opt.outdir, 'temperatures.dat')
     logger.info('Writing temperatures to %s' % outfile)
-    T_dpa = temps['fptemp']
-    temp_recs = [(times[i], DateTime(times[i]).date, T_dpa[i])
+    T_acisfp = temps['fptemp']
+    temp_recs = [(times[i], DateTime(times[i]).date, T_acisfp[i])
                  for i in xrange(len(times))]
     temp_array = np.rec.fromrecords(
         temp_recs, names=('time', 'date', 'fptemp'))
@@ -709,8 +711,9 @@ def make_validation_plots(opt, tlm, db):
     stop = tlm['date'][-1]
     states = get_states(start, stop, db)
 
-    # Create array of times at which to calculate DPA temperatures, then do it
-    logger.info('Calculating DPA thermal model for validation')
+    # Create array of times at which to calculate ACISFP temperatures, then do
+    # it
+    logger.info('Calculating ACISFP thermal model for validation')
 
     model = calc_model(opt.model_spec, states, start, stop)
 
@@ -737,7 +740,7 @@ def make_validation_plots(opt, tlm, db):
             'tscpos': '%d'}
 
     plots = []
-    logger.info('Making DPA model validation plots and quantile table')
+    logger.info('Making ACISFP model validation plots and quantile table')
     quantiles = (1, 5, 16, 50, 84, 95, 99)
     # store lines of quantile table in a string and write out later
     quant_table = ''

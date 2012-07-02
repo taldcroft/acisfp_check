@@ -1,6 +1,6 @@
-=======================
-DPA temperatures check
-=======================
+==========================
+ACISFP temperatures check
+==========================
 .. role:: red
 
 {% if proc.errors %}
@@ -16,7 +16,7 @@ Summary
 ====================  =============================================
 Date start            {{proc.datestart}}
 Date stop             {{proc.datestop}}
-1DPAMZT status        {%if viols.dpa%}:red:`NOT OK`{% else %}OK{% endif%} (limit = {{proc.dpa_limit|floatformat:1}} C)
+FPTEMP_11 status        {%if viols.acisfp%}:red:`NOT OK`{% else %}OK{% endif%} (limit = {{proc.acisfp_limit|floatformat:1}} C)
 {% if opt.loaddir %}
 Load directory        {{opt.loaddir}}
 {% endif %}
@@ -26,31 +26,31 @@ Temperatures          `<temperatures.dat>`_
 States                `<states.dat>`_
 ====================  =============================================
 
-{% if viols.dpa  %}
-1DPAMZT Violations
+{% if viols.acisfp  %}
+FPTEMP_11 Violations
 -------------------
 =====================  =====================  ==================
 Date start             Date stop              Max temperature
 =====================  =====================  ==================
-{% for viol in viols.dpa %}
+{% for viol in viols.acisfp %}
 {{viol.datestart}}  {{viol.datestop}}  {{viol.maxtemp|floatformat:2}}
 {% endfor %}
 =====================  =====================  ==================
 {% else %}
-No 1DPAMZT Violations
+No FPTEMP_11 Violations
 {% endif %}
 
 .. image:: {{plots.fptemp.filename}}
 .. image:: {{plots.pow_sim.filename}}
 
 =======================
-DPA Model Validation
+ACISFP Model Validation
 =======================
 
 MSID quantiles
 ---------------
 
-Note: DPA quantiles are calculated using only points where 1DPAMZT > 20 degC.
+Note: ACISFP quantiles are calculated using only points where -119.7 < ACISFP_11 < 117.0.
 
 .. csv-table:: 
    :header: "MSID", "1%", "5%", "16%", "50%", "84%", "95%", "99%"
@@ -83,7 +83,7 @@ No Validation Violations
 {{ plot.msid }}
 -----------------------
 
-Note: DPA residual histograms include only points where 1DPAMZT > 20 degC.
+Note: ACISFP residual histograms include only points where -119.7 < ACISFP_11 < 117.0..
 
 Red = telemetry, blue = model
 
